@@ -1,0 +1,142 @@
+---
+title: "Insertar datos"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+---
+
+```{r, echo=FALSE, eval=TRUE}
+my_user_name <- "root"
+my_password <- "kungfu"
+my_host_name <- "localhost"
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, eval=TRUE)
+```
+
+En esta sección preparamos un script para automatizar la inserción de valores en nuestra base de datos de ventas de la compañía de automóviles.
+
+## Definir variables y preparar los datos
+
+```{r}
+library("RMySQL")
+library("readODS")
+
+data_path <- "/home/fabio/Documents/automotive_purchase_orders/sitio_web"
+data_file <- "data_to_insert.ods"
+database_name <- "automotive_purchase_orders"
+
+con <- dbConnect(MySQL(),
+                 user=my_user_name,
+                 password=my_password,
+                 dbname=database_name,
+                 host=my_host_name)
+
+dbListTables(con)
+```
+
+Para automatizar el proceso, debemos procesar las tablas según un orden establecido para respetar las restricciones de claves primarias. Por ello, creamos un vector con el nombre de las tablas en ese orden:
+
+```{r}
+order_of_processing <- c(
+  "MARCAS",
+  "MODELOS",
+  "VERSIONES",
+  "EQUIPAMIENTOS_OPCIONALES",
+  "cruce_VERSIONES_EQUIPA",
+  "USADOS",
+  "CLIENTES",
+  "CONCESIONARIOS",
+  "PEDIDOS_NUEVOS",
+  "cruce_PEDIDOS_EQUIPA",
+  "VENTAS_USADOS"
+)
+```
+
+Los datos a insertar están en un fichero OpenOffice, con una tabla por hoja. Antes de procesar las tablas, comprobamos que los nombres de las hojas coinciden con los nombres de las tablas de la base de datos.
+
+```{r}
+my_tables <- sort(dbListTables(con))
+my_sheets <- sort(list_ods_sheets(file.path(data_path,data_file)))
+print(my_sheets)
+if(!identical(toupper(my_sheets), toupper(my_tables))){
+  stop("db tables and ods sheets mismatch")
+  }else{cat("OK!","\n")}
+```
+
+## Inserción de datos
+
+Creamos una función para la inserción de los datos. La función requiere el nombre de una tabla de la base de datos como único argumento. La función, en primer lugar, encuentra la hoja ods con el mismo nombre; después, importa la hoja del fichero ods y comprueba que los nombres de las columnas coinciden con los nombres de los campos en la base de datos. El siguiente paso es definir la sentencia SQL para cada una de las líneas de la tabla. La sentencia se enviará al *host* con manejo de errores. Tenemos que añadir una excepción para la tabla `PEDIDOS_NUEVOS`, porque la clave primaria de esta tabla es auto-incremental: tendremos que excluir el campo `id_pedido` de la inserción.
+
+```{r}
+inserting_data <- function(itable){
+  # name of the corresponding ods sheet
+  isheet <- grep(paste0("^",itable,"$"), my_sheets, ignore.case=TRUE, value=TRUE)
+  # read in the ods sheet
+  data_to_insert <- read_ods(
+    path = file.path(data_path,data_file),
+    sheet = isheet,
+    col_names = TRUE, col_types = NA #col_types=NA means 'character'
+  )
+  # check that field names of table and field names of sheet match
+  table_fields <- dbListFields(con,itable)
+  sheet_fields <- names(data_to_insert)
+  if(itable=="PEDIDOS_NUEVOS"){table_fields <- table_fields[-1]}
+  if(!identical(toupper(table_fields), toupper(sheet_fields))){
+    stop("Field names of db tables and ods sheets mismatch")
+  }
+  # loop rows to insert
+  for(n in 1:nrow(data_to_insert)){
+    statement <- paste0(
+      "INSERT INTO ", database_name, ".", itable, " (", paste(table_fields,collapse=","),
+      ") VALUES ('", paste(data_to_insert[n,],collapse="','"), "');"
+    )
+    # insert data and handle messages from db host
+    rs <- tryCatch(
+      expr = {dbSendStatement(con, statement)},
+      error = function(e){
+        cat("THERE WAS AN ERROR:","\n")
+        cat(e$message,"\n")
+        return("Execution interrupted")},
+      warning = function(w){
+        cat("THERE WAS A WARNING MESSAGE:","\n")
+        cat(w$message,"\n")
+        return("Execution interrupted")}
+    )
+    # finalize iteration with error handling
+    if(class(rs)!="MySQLResult"){
+      cat(statement,"\n"); stop(rs)
+    }else{
+      dbClearResult(rs); rm(rs)
+    }
+  }
+}
+```
+
+Implementamos la función. Si no recibimos mensajes de error, el proceso habrá finalizado correctamente y podremos analizar los datos en MySQL:
+
+```{r}
+for(i in order_of_processing){
+  cat("Processing",i,"\n")
+  inserting_data(i)
+}
+```
+
+## Finalización
+
+Para terminar el procesamiento, cerramos la conexión a la base de datos:
+
+```{r}
+cat("db disconnect",dbDisconnect(con),"\n")
+detach("package:RMySQL")
+detach("package:DBI")
+rm(con)
+```
+<hr>
+<p align=right>
+<a href="inserting_data.R" download><button class="botonDescarga"><b>Descargar el código</b></button></a>
+</p>
+<hr>

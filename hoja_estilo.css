@@ -1,0 +1,29 @@
+body  {
+  background-image:url("SL_042620_30310_19.jpg");
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+  background-color: #D0D0D0;
+}
+
+.abajoderecha {
+  position: fixed;
+  bottom: 1px;
+  right: 10px;
+  font-size: 12px;
+}
+
+.arribaizquierda {
+  position: absolute;
+  top: 1px;
+  left: 10px;
+  font-size: 12px;
+}
+
+.botonDescarga {
+  background-color: #5499c7;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 15px;
+}
